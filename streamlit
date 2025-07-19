@@ -1,457 +1,708 @@
 import streamlit as st
+import requests
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import io
+from datetime import datetime, timedelta
+import json
+import time
 
-# Page configuration
+# Configure page
 st.set_page_config(
-    page_title="Blog Post Performance Tracker",
+    page_title="Blog Performance Tracker",
     page_icon="📝",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# CSS for better styling
+# Custom CSS for modern styling
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
+    .main > div {
+        padding-top: 2rem;
     }
-    .metric-card {
-        background-color: #f0f2f6;
+
+    .stMetric {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #1f77b4;
+        border-radius: 10px;
+        color: white;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
-    .status-good { border-left-color: #28a745 !important; }
-    .status-warning { border-left-color: #ffc107 !important; }
-    .status-poor { border-left-color: #dc3545 !important; }
+
+    .stMetric label {
+        color: white !important;
+    }
+
+    .stMetric div {
+        color: white !important;
+    }
+
+    .status-card {
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .on-schedule {
+        background: linear-gradient(135deg, #4CAF50, #45a049);
+        color: white;
+    }
+
+    .acceptable {
+        background: linear-gradient(135deg, #FF9800, #F57C00);
+        color: white;
+    }
+
+    .poor-timing {
+        background: linear-gradient(135deg, #F44336, #D32F2F);
+        color: white;
+    }
+
+    .sidebar .stSelectbox > div > div {
+        background-color: #f8f9fa;
+    }
+
+    .prediction-result {
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+    }
+
+    .api-status {
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        text-align: center;
+        font-weight: bold;
+    }
+
+    .api-healthy {
+        background: linear-gradient(135deg, #56ab2f, #a8e6cf);
+        color: white;
+    }
+
+    .api-error {
+        background: linear-gradient(135deg, #ff416c, #ff4757);
+        color: white;
+    }
 </style>
 """, unsafe_allow_html=True)
 
+# Configuration
+API_BASE_URL = "http://localhost:8000"
 
-class BlogPostTracker:
-    def __init__(self):
-        self.feature_columns = [
-            'posting_delay', 'early_posting', 'writing_duration',
-            'scheduled_duration', 'duration_difference', 'posting_hour',
-            'posting_day_of_week', 'posting_month'
-        ]
 
-    def preprocess_data(self, df):
-        """Preprocess the blog data to create features"""
+class BlogTrackerAPI:
+    def __init__(self, base_url):
+        self.base_url = base_url
+
+    def health_check(self):
         try:
-            # Convert time columns to datetime
-            datetime_columns = ['start_writing', 'post_published', 'scheduled_start', 'scheduled_deadline']
-            for col in datetime_columns:
-                if col in df.columns:
-                    df[col] = pd.to_datetime(df[col])
+            response = requests.get(f"{self.base_url}/health", timeout=5)
+            return response.status_code == 200, response.json() if response.status_code == 200 else None
+        except requests.exceptions.RequestException as e:
+            return False, str(e)
 
-            # Feature engineering
-            df['posting_delay'] = np.maximum(0,
-                                             (df['post_published'] - df['scheduled_deadline']).dt.total_seconds() / 60)
-            df['early_posting'] = np.maximum(0,
-                                             (df['scheduled_deadline'] - df['post_published']).dt.total_seconds() / 60)
-            df['writing_duration'] = (df['post_published'] - df['start_writing']).dt.total_seconds() / 3600
-            df['scheduled_duration'] = (df['scheduled_deadline'] - df['scheduled_start']).dt.total_seconds() / 3600
-            df['duration_difference'] = df['writing_duration'] - df['scheduled_duration']
-            df['posting_hour'] = df['post_published'].dt.hour
-            df['posting_day_of_week'] = df['post_published'].dt.dayofweek
-            df['posting_month'] = df['post_published'].dt.month
-
-            # Create posting performance status
-            def categorize_posting_performance(row):
-                if row['posting_delay'] <= 30 and row['early_posting'] <= 30:
-                    return 'on_schedule'
-                elif row['posting_delay'] > 240 or row['early_posting'] > 480:
-                    return 'poor_timing'
-                else:
-                    return 'acceptable'
-
-            df['posting_status'] = df.apply(categorize_posting_performance, axis=1)
-            return df
-
-        except Exception as e:
-            st.error(f"Error preprocessing data: {str(e)}")
-            return df
+    def train_model(self):
+        try:
+            response = requests.post(f"{self.base_url}/train", timeout=30)
+            return response.status_code == 200, response.json() if response.status_code == 200 else response.text
+        except requests.exceptions.RequestException as e:
+            return False, str(e)
 
     def predict_performance(self, data):
-        """Simple rule-based prediction (replacing ML model)"""
         try:
-            df = pd.DataFrame([data])
-            df = self.preprocess_data(df)
+            response = requests.post(f"{self.base_url}/predict", json=data, timeout=10)
+            return response.status_code == 200, response.json() if response.status_code == 200 else response.text
+        except requests.exceptions.RequestException as e:
+            return False, str(e)
 
-            row = df.iloc[0]
-
-            # Simple rule-based prediction
-            if row['posting_delay'] <= 30 and row['early_posting'] <= 30:
-                status = 'on_schedule'
-                confidence = 0.85
-            elif row['posting_delay'] > 240 or row['early_posting'] > 480:
-                status = 'poor_timing'
-                confidence = 0.90
-            else:
-                status = 'acceptable'
-                confidence = 0.75
-
-            # Create probability distribution
-            probs = {'on_schedule': 0.3, 'acceptable': 0.4, 'poor_timing': 0.3}
-            probs[status] = confidence
-            remaining = (1.0 - confidence) / 2
-            for key in probs:
-                if key != status:
-                    probs[key] = remaining
-
-            return {
-                'predicted_status': status,
-                'probabilities': probs,
-                'confidence': confidence
+    def get_posts_timeframe(self, start_time, end_time):
+        try:
+            data = {
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat()
             }
+            response = requests.post(f"{self.base_url}/posts/timeframe", json=data, timeout=10)
+            return response.status_code == 200, response.json() if response.status_code == 200 else response.text
+        except requests.exceptions.RequestException as e:
+            return False, str(e)
 
-        except Exception as e:
-            st.error(f"Error making prediction: {str(e)}")
-            return None
+    def get_model_performance(self):
+        try:
+            response = requests.get(f"{self.base_url}/model/performance", timeout=10)
+            return response.status_code == 200, response.json() if response.status_code == 200 else response.text
+        except requests.exceptions.RequestException as e:
+            return False, str(e)
 
-
-# Initialize tracker
-if 'tracker' not in st.session_state:
-    st.session_state.tracker = BlogPostTracker()
-
-# Main title
-st.markdown('<h1 class="main-header">📝 Blog Post Performance Tracker</h1>', unsafe_allow_html=True)
-
-# Sidebar
-st.sidebar.title("Navigation")
-page = st.sidebar.selectbox("Choose a page:", [
-    "📊 Dashboard",
-    "🔮 Predict Performance",
-    "📈 Analytics",
-    "📁 Data Management"
-])
+    def get_debug_info(self):
+        try:
+            response = requests.get(f"{self.base_url}/debug/data-info", timeout=10)
+            return response.status_code == 200, response.json() if response.status_code == 200 else response.text
+        except requests.exceptions.RequestException as e:
+            return False, str(e)
 
 
-# Sample data generator
-def generate_sample_data():
-    """Generate sample blog post data"""
-    np.random.seed(42)
-    n_posts = 50
-
-    base_time = datetime.now() - timedelta(days=30)
-    data = []
-
-    for i in range(n_posts):
-        # Random timing variations
-        start_writing = base_time + timedelta(days=i / 2, hours=np.random.uniform(-2, 2))
-        scheduled_start = start_writing + timedelta(hours=np.random.uniform(0.5, 3))
-        scheduled_deadline = scheduled_start + timedelta(hours=np.random.uniform(2, 8))
-
-        # Add some realistic delays/early postings
-        actual_delay = np.random.normal(0, 120)  # minutes
-        post_published = scheduled_deadline + timedelta(minutes=actual_delay)
-
-        data.append({
-            'post_id': f'post_{i + 1:03d}',
-            'start_writing': start_writing,
-            'scheduled_start': scheduled_start,
-            'scheduled_deadline': scheduled_deadline,
-            'post_published': post_published,
-            'title': f'Blog Post {i + 1}',
-            'category': np.random.choice(['Tech', 'Lifestyle', 'Business', 'Tutorial'])
-        })
-
-    return pd.DataFrame(data)
+# Initialize API client
+api = BlogTrackerAPI(API_BASE_URL)
 
 
-# Initialize sample data if not exists
-if 'blog_data' not in st.session_state:
-    st.session_state.blog_data = generate_sample_data()
+def main():
+    # Header
+    st.markdown("""
+    <div style='text-align: center; padding: 2rem 0;'>
+        <h1 style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                   -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
+                   font-size: 3rem; font-weight: bold; margin-bottom: 0.5rem;'>
+            📝 Blog Performance Tracker
+        </h1>
+        <p style='font-size: 1.2rem; color: #666; margin-top: 0;'>
+            AI-Powered Blog Post Performance Analysis & Prediction
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Page routing
-if page == "📊 Dashboard":
-    st.header("Dashboard Overview")
+    # Sidebar
+    with st.sidebar:
+        st.markdown("### 🎛️ Control Panel")
 
-    if st.session_state.blog_data is not None and not st.session_state.blog_data.empty:
-        df = st.session_state.tracker.preprocess_data(st.session_state.blog_data.copy())
+        # API Status Check
+        st.markdown("#### 📡 API Status")
+        if st.button("🔍 Check API Status", use_container_width=True):
+            with st.spinner("Checking API status..."):
+                is_healthy, health_data = api.health_check()
+                if is_healthy:
+                    st.markdown(f"""
+                    <div class='api-status api-healthy'>
+                        ✅ API is Healthy<br>
+                        Model Trained: {'Yes' if health_data.get('model_trained') else 'No'}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class='api-status api-error'>
+                        ❌ API Error<br>
+                        {health_data}
+                    </div>
+                    """, unsafe_allow_html=True)
 
-        # Key metrics
-        col1, col2, col3, col4 = st.columns(4)
+        # Navigation
+        st.markdown("#### 🧭 Navigation")
+        page = st.selectbox(
+            "Choose a page:",
+            [
+                "🏠 Dashboard",
+                "🔮 Performance Prediction",
+                "📊 Data Analysis",
+                "🤖 Model Training",
+                "📈 Model Performance",
+                "🔧 Debug Info"
+            ]
+        )
 
+    # Main content based on selected page
+    if page == "🏠 Dashboard":
+        show_dashboard()
+    elif page == "🔮 Performance Prediction":
+        show_prediction_page()
+    elif page == "📊 Data Analysis":
+        show_data_analysis()
+    elif page == "🤖 Model Training":
+        show_training_page()
+    elif page == "📈 Model Performance":
+        show_model_performance()
+    elif page == "🔧 Debug Info":
+        show_debug_info()
+
+
+def show_dashboard():
+    st.markdown("## 📊 Dashboard Overview")
+
+    # Quick stats row
+    col1, col2, col3, col4 = st.columns(4)
+
+    # Get recent data for dashboard
+    end_time = datetime.now()
+    start_time = end_time - timedelta(days=30)  # Last 30 days
+
+    success, data = api.get_posts_timeframe(start_time, end_time)
+
+    if success:
         with col1:
-            total_posts = len(df)
-            st.metric("Total Posts", total_posts)
+            st.metric(
+                label="📝 Total Posts (30d)",
+                value=data['total_posts'],
+                delta="Last 30 days"
+            )
 
         with col2:
-            on_time = len(df[df['posting_status'] == 'on_schedule'])
-            on_time_rate = (on_time / total_posts * 100) if total_posts > 0 else 0
-            st.metric("On Schedule", f"{on_time_rate:.1f}%")
+            on_schedule = data['posts_by_status'].get('on_schedule', 0)
+            total = data['total_posts']
+            percentage = (on_schedule / total * 100) if total > 0 else 0
+            st.metric(
+                label="⏰ On Schedule",
+                value=f"{percentage:.1f}%",
+                delta=f"{on_schedule} posts"
+            )
 
         with col3:
-            avg_delay = df['posting_delay'].mean()
-            st.metric("Avg Delay (min)", f"{avg_delay:.1f}")
+            poor_timing = data['posts_by_status'].get('poor_timing', 0)
+            st.metric(
+                label="⚠️ Poor Timing",
+                value=poor_timing,
+                delta="Posts with issues"
+            )
 
         with col4:
-            avg_duration = df['writing_duration'].mean()
-            st.metric("Avg Writing Time (hrs)", f"{avg_duration:.1f}")
+            acceptable = data['posts_by_status'].get('acceptable', 0)
+            st.metric(
+                label="✅ Acceptable",
+                value=acceptable,
+                delta="Decent performance"
+            )
 
-        # Status distribution
-        col1, col2 = st.columns(2)
+        # Status distribution chart
+        if data['total_posts'] > 0:
+            st.markdown("### 📈 Performance Distribution")
 
-        with col1:
-            status_counts = df['posting_status'].value_counts()
-            fig_pie = px.pie(
-                values=status_counts.values,
-                names=status_counts.index,
-                title="Posting Status Distribution",
+            status_data = data['posts_by_status']
+
+            # Create a donut chart
+            fig = go.Figure(data=[go.Pie(
+                labels=list(status_data.keys()),
+                values=list(status_data.values()),
+                hole=.3,
+                marker_colors=['#4CAF50', '#FF9800', '#F44336']
+            )])
+
+            fig.update_layout(
+                title="Blog Post Performance Distribution",
+                font=dict(size=14),
+                showlegend=True,
+                height=400
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Recent posts timeline
+        if data['posts_data']:
+            st.markdown("### 📅 Recent Posts Timeline")
+            df = pd.DataFrame(data['posts_data'])
+            df['post_published'] = pd.to_datetime(df['post_published'])
+
+            fig = px.scatter(
+                df,
+                x='post_published',
+                y='posting_status',
+                color='posting_status',
+                size='writing_duration',
+                hover_data=['posting_delay', 'early_posting'],
+                title="Recent Blog Posts Timeline",
                 color_discrete_map={
-                    'on_schedule': '#28a745',
-                    'acceptable': '#ffc107',
-                    'poor_timing': '#dc3545'
+                    'on_schedule': '#4CAF50',
+                    'acceptable': '#FF9800',
+                    'poor_timing': '#F44336'
                 }
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
 
-        with col2:
-            # Recent performance trend
-            df_recent = df.sort_values('post_published').tail(20)
-            fig_trend = px.line(
-                df_recent,
-                x='post_published',
-                y='posting_delay',
-                title="Recent Posting Delay Trend",
-                labels={'posting_delay': 'Delay (minutes)', 'post_published': 'Date'}
-            )
-            st.plotly_chart(fig_trend, use_container_width=True)
-
-        # Recent posts table
-        st.subheader("Recent Posts")
-        recent_posts = df.sort_values('post_published', ascending=False).head(10)
-        display_cols = ['title', 'post_published', 'posting_status', 'posting_delay', 'writing_duration']
-        st.dataframe(recent_posts[display_cols], use_container_width=True)
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
 
     else:
-        st.info("No data available. Please upload data or use sample data.")
+        st.warning("📡 Unable to fetch dashboard data. Please check API connection.")
 
-elif page == "🔮 Predict Performance":
-    st.header("Predict Blog Post Performance")
 
-    st.markdown("Enter your blog post timing details to get a performance prediction:")
+def show_prediction_page():
+    st.markdown("## 🔮 Blog Post Performance Prediction")
+    st.markdown("Enter your blog post timing details to predict performance:")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        start_writing = st.date_input(
+        st.markdown("### ✍️ Writing Details")
+        start_writing = st.datetime_input(
             "When did you start writing?",
-            value=datetime.now() - timedelta(hours=2)
+            value=datetime.now() - timedelta(hours=2),
+            help="The timestamp when you began writing the post"
         )
-        start_writing_time = st.time_input("Start writing time", value=(datetime.now() - timedelta(hours=2)).time())
 
-        scheduled_start = st.date_input(
-            "Scheduled start date?",
-            value=datetime.now() - timedelta(hours=1)
+        post_published = st.datetime_input(
+            "When was the post published?",
+            value=datetime.now(),
+            help="The actual publication timestamp"
         )
-        scheduled_start_time = st.time_input("Scheduled start time", value=(datetime.now() - timedelta(hours=1)).time())
 
     with col2:
-        post_published = st.date_input(
-            "When was it published?",
-            value=datetime.now()
+        st.markdown("### 📅 Schedule Details")
+        scheduled_start = st.datetime_input(
+            "When were you scheduled to start?",
+            value=datetime.now() - timedelta(hours=3),
+            help="Your planned start time for writing"
         )
-        post_published_time = st.time_input("Published time", value=datetime.now().time())
 
-        scheduled_deadline = st.date_input(
-            "Scheduled deadline date?",
-            value=datetime.now() + timedelta(hours=1)
+        scheduled_deadline = st.datetime_input(
+            "What was the deadline?",
+            value=datetime.now() - timedelta(minutes=30),
+            help="Your planned publication deadline"
         )
-        scheduled_deadline_time = st.time_input("Deadline time", value=(datetime.now() + timedelta(hours=1)).time())
 
-    # Combine date and time
-    start_writing_dt = datetime.combine(start_writing, start_writing_time)
-    scheduled_start_dt = datetime.combine(scheduled_start, scheduled_start_time)
-    post_published_dt = datetime.combine(post_published, post_published_time)
-    scheduled_deadline_dt = datetime.combine(scheduled_deadline, scheduled_deadline_time)
+    # Validation
+    if start_writing >= post_published:
+        st.error("⚠️ Start writing time must be before publication time!")
+        return
 
-    if st.button("Predict Performance", type="primary"):
-        prediction_data = {
-            'start_writing': start_writing_dt,
-            'scheduled_start': scheduled_start_dt,
-            'post_published': post_published_dt,
-            'scheduled_deadline': scheduled_deadline_dt
-        }
+    if scheduled_start >= scheduled_deadline:
+        st.error("⚠️ Scheduled start must be before scheduled deadline!")
+        return
 
-        result = st.session_state.tracker.predict_performance(prediction_data)
+    if st.button("🔮 Predict Performance", use_container_width=True, type="primary"):
+        with st.spinner("🤖 Analyzing your blog post performance..."):
+            prediction_data = {
+                "start_writing": start_writing.isoformat(),
+                "post_published": post_published.isoformat(),
+                "scheduled_start": scheduled_start.isoformat(),
+                "scheduled_deadline": scheduled_deadline.isoformat()
+            }
 
-        if result:
-            st.success("Prediction Generated!")
+            success, result = api.predict_performance(prediction_data)
 
-            # Display prediction
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
+            if success:
+                # Display prediction result
                 status = result['predicted_status']
-                color = {
-                    'on_schedule': '🟢',
-                    'acceptable': '🟡',
-                    'poor_timing': '🔴'
-                }.get(status, '⚫')
+                probabilities = result['probabilities']
 
-                st.markdown(f"### {color} Predicted Status")
-                st.markdown(f"**{status.replace('_', ' ').title()}**")
+                # Status styling
+                status_colors = {
+                    'on_schedule': '#4CAF50',
+                    'acceptable': '#FF9800',
+                    'poor_timing': '#F44336'
+                }
 
-            with col2:
-                confidence = result['confidence']
-                st.markdown("### 📊 Confidence")
-                st.progress(confidence)
-                st.markdown(f"**{confidence:.1%}**")
+                status_icons = {
+                    'on_schedule': '🎯',
+                    'acceptable': '⚡',
+                    'poor_timing': '⚠️'
+                }
 
-            with col3:
-                st.markdown("### 📈 Probabilities")
-                for status, prob in result['probabilities'].items():
-                    st.markdown(f"**{status.replace('_', ' ').title()}:** {prob:.1%}")
+                st.markdown(f"""
+                <div class='prediction-result'>
+                    <h2 style='margin-top: 0; text-align: center;'>
+                        {status_icons.get(status, '📊')} Prediction Result
+                    </h2>
+                    <h1 style='text-align: center; margin: 1rem 0; font-size: 2.5rem;'>
+                        {status.replace('_', ' ').title()}
+                    </h1>
+                    <p style='text-align: center; opacity: 0.9;'>
+                        Model Used: {result['model_used']}
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
 
-elif page == "📈 Analytics":
-    st.header("Performance Analytics")
+                # Probability breakdown
+                st.markdown("### 📊 Confidence Breakdown")
+                prob_df = pd.DataFrame(list(probabilities.items()), columns=['Status', 'Probability'])
+                prob_df['Probability'] = prob_df['Probability'] * 100
+                prob_df = prob_df.sort_values('Probability', ascending=False)
 
-    if st.session_state.blog_data is not None and not st.session_state.blog_data.empty:
-        df = st.session_state.tracker.preprocess_data(st.session_state.blog_data.copy())
+                fig = px.bar(
+                    prob_df,
+                    x='Status',
+                    y='Probability',
+                    color='Status',
+                    color_discrete_map=status_colors,
+                    title="Prediction Confidence for Each Status"
+                )
 
-        # Time-based analysis
-        col1, col2 = st.columns(2)
+                fig.update_layout(
+                    yaxis_title="Confidence (%)",
+                    xaxis_title="Performance Status",
+                    height=400
+                )
 
-        with col1:
-            # Posting hour analysis
-            hour_performance = df.groupby('posting_hour').agg({
-                'posting_delay': 'mean',
-                'posting_status': lambda x: (x == 'on_schedule').mean()
-            }).reset_index()
+                st.plotly_chart(fig, use_container_width=True)
 
-            fig_hour = px.bar(
-                hour_performance,
-                x='posting_hour',
-                y='posting_status',
-                title="Success Rate by Hour of Day",
-                labels={'posting_status': 'On Schedule Rate', 'posting_hour': 'Hour of Day'}
-            )
-            st.plotly_chart(fig_hour, use_container_width=True)
-
-        with col2:
-            # Day of week analysis
-            dow_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-            dow_performance = df.groupby('posting_day_of_week').agg({
-                'posting_delay': 'mean',
-                'posting_status': lambda x: (x == 'on_schedule').mean()
-            }).reset_index()
-            dow_performance['day_name'] = dow_performance['posting_day_of_week'].apply(lambda x: dow_names[x])
-
-            fig_dow = px.bar(
-                dow_performance,
-                x='day_name',
-                y='posting_status',
-                title="Success Rate by Day of Week",
-                labels={'posting_status': 'On Schedule Rate', 'day_name': 'Day of Week'}
-            )
-            st.plotly_chart(fig_dow, use_container_width=True)
-
-        # Detailed metrics
-        st.subheader("Performance Metrics")
-
-        metrics_df = df.groupby('posting_status').agg({
-            'posting_delay': ['mean', 'std', 'count'],
-            'writing_duration': ['mean', 'std'],
-            'duration_difference': 'mean'
-        }).round(2)
-
-        st.dataframe(metrics_df, use_container_width=True)
-
-        # Correlation heatmap
-        st.subheader("Feature Correlations")
-        numeric_cols = ['posting_delay', 'writing_duration', 'duration_difference',
-                        'posting_hour', 'posting_day_of_week']
-        corr_matrix = df[numeric_cols].corr()
-
-        fig_corr = px.imshow(
-            corr_matrix,
-            title="Feature Correlation Matrix",
-            color_continuous_scale="RdBu_r",
-            aspect="auto"
-        )
-        st.plotly_chart(fig_corr, use_container_width=True)
-
-    else:
-        st.info("No data available for analysis.")
-
-elif page == "📁 Data Management":
-    st.header("Data Management")
-
-    # File upload
-    st.subheader("Upload Blog Data")
-    uploaded_file = st.file_uploader(
-        "Choose a CSV file",
-        type="csv",
-        help="CSV should have columns: start_writing, post_published, scheduled_start, scheduled_deadline"
-    )
-
-    if uploaded_file is not None:
-        try:
-            df = pd.read_csv(uploaded_file)
-            required_cols = ['start_writing', 'post_published', 'scheduled_start', 'scheduled_deadline']
-
-            if all(col in df.columns for col in required_cols):
-                st.session_state.blog_data = df
-                st.success(f"Successfully loaded {len(df)} records!")
-
-                # Show data preview
-                st.subheader("Data Preview")
-                st.dataframe(df.head(), use_container_width=True)
             else:
-                missing_cols = [col for col in required_cols if col not in df.columns]
-                st.error(f"Missing required columns: {missing_cols}")
+                st.error(f"❌ Prediction failed: {result}")
 
-        except Exception as e:
-            st.error(f"Error loading file: {str(e)}")
 
-    # Sample data option
-    st.subheader("Sample Data")
-    if st.button("Load Sample Data"):
-        st.session_state.blog_data = generate_sample_data()
-        st.success("Sample data loaded!")
+def show_data_analysis():
+    st.markdown("## 📊 Data Analysis")
 
-    # Export functionality
-    if st.session_state.blog_data is not None and not st.session_state.blog_data.empty:
-        st.subheader("Export Data")
-
-        # Process data for export
-        processed_df = st.session_state.tracker.preprocess_data(st.session_state.blog_data.copy())
-
-        # Convert to CSV
-        csv_buffer = io.StringIO()
-        processed_df.to_csv(csv_buffer, index=False)
-        csv_data = csv_buffer.getvalue()
-
-        st.download_button(
-            label="Download Processed Data as CSV",
-            data=csv_data,
-            file_name=f"blog_performance_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
+    # Time range selector
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input(
+            "Start Date",
+            value=datetime.now().date() - timedelta(days=30)
         )
 
-        # Show current data info
-        st.subheader("Current Data Info")
-        col1, col2, col3 = st.columns(3)
+    with col2:
+        end_date = st.date_input(
+            "End Date",
+            value=datetime.now().date()
+        )
 
-        with col1:
-            st.metric("Total Records", len(processed_df))
-        with col2:
-            st.metric("Date Range", f"{len(processed_df['post_published'].dt.date.unique())} days")
-        with col3:
-            st.metric("Categories", len(processed_df['category'].unique()) if 'category' in processed_df.columns else 0)
+    if st.button("📈 Analyze Data", use_container_width=True):
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+        end_datetime = datetime.combine(end_date, datetime.max.time())
 
-# Footer
-st.markdown("---")
-st.markdown("Built with Streamlit • Blog Post Performance Tracker v1.0")
+        with st.spinner("🔍 Analyzing your data..."):
+            success, data = api.get_posts_timeframe(start_datetime, end_datetime)
+
+            if success:
+                st.success(f"✅ Found {data['total_posts']} posts in the selected timeframe")
+
+                if data['total_posts'] > 0:
+                    # Convert to DataFrame for analysis
+                    df = pd.DataFrame(data['posts_data'])
+                    df['post_published'] = pd.to_datetime(df['post_published'])
+                    df['posting_hour'] = df['post_published'].dt.hour
+                    df['posting_day'] = df['post_published'].dt.day_name()
+
+                    # Performance by hour
+                    st.markdown("### ⏰ Performance by Hour of Day")
+                    hourly_perf = df.groupby(['posting_hour', 'posting_status']).size().unstack(fill_value=0)
+
+                    fig = px.bar(
+                        hourly_perf.reset_index(),
+                        x='posting_hour',
+                        y=['on_schedule', 'acceptable', 'poor_timing'],
+                        title="Blog Post Performance by Hour of Day",
+                        labels={'value': 'Number of Posts', 'posting_hour': 'Hour of Day'},
+                        color_discrete_map={
+                            'on_schedule': '#4CAF50',
+                            'acceptable': '#FF9800',
+                            'poor_timing': '#F44336'
+                        }
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Performance by day of week
+                    st.markdown("### 📅 Performance by Day of Week")
+                    daily_perf = df.groupby(['posting_day', 'posting_status']).size().unstack(fill_value=0)
+
+                    # Reorder days
+                    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                    daily_perf = daily_perf.reindex(day_order, fill_value=0)
+
+                    fig = px.bar(
+                        daily_perf.reset_index(),
+                        x='posting_day',
+                        y=['on_schedule', 'acceptable', 'poor_timing'],
+                        title="Blog Post Performance by Day of Week",
+                        color_discrete_map={
+                            'on_schedule': '#4CAF50',
+                            'acceptable': '#FF9800',
+                            'poor_timing': '#F44336'
+                        }
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Writing duration vs performance
+                    st.markdown("### ⏱️ Writing Duration Impact")
+                    fig = px.box(
+                        df,
+                        x='posting_status',
+                        y='writing_duration',
+                        color='posting_status',
+                        title="Writing Duration by Performance Status",
+                        color_discrete_map={
+                            'on_schedule': '#4CAF50',
+                            'acceptable': '#FF9800',
+                            'poor_timing': '#F44336'
+                        }
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Data table
+                    st.markdown("### 📋 Raw Data")
+                    st.dataframe(
+                        df[['post_published', 'posting_status', 'writing_duration', 'posting_delay', 'early_posting']],
+                        use_container_width=True)
+
+            else:
+                st.error(f"❌ Failed to fetch data: {data}")
+
+
+def show_training_page():
+    st.markdown("## 🤖 Model Training")
+    st.markdown("Train the machine learning model with your latest data:")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.info("""
+        **🎯 What happens during training:**
+        - Loads your blog post data from CSV
+        - Preprocesses and engineers features
+        - Trains a RandomForest model with GridSearchCV
+        - Optimizes hyperparameters automatically
+        - Validates performance on test data
+        """)
+
+    with col2:
+        if st.button("🚀 Start Training", use_container_width=True, type="primary"):
+            with st.spinner("🤖 Training your model... This may take a few minutes."):
+                success, result = api.train_model()
+
+                if success:
+                    st.success("✅ Model training completed successfully!")
+
+                    # Display training results
+                    if result.get('model_performance'):
+                        perf = result['model_performance'][0]
+
+                        col_a, col_b, col_c = st.columns(3)
+
+                        with col_a:
+                            st.metric(
+                                "🎯 Test Accuracy",
+                                f"{perf['test_accuracy']:.3f}",
+                                delta=f"CV: {perf['best_cv_score']:.3f}"
+                            )
+
+                        with col_b:
+                            st.metric(
+                                "🏋️ Training Samples",
+                                perf['train_samples']
+                            )
+
+                        with col_c:
+                            st.metric(
+                                "✅ Test Samples",
+                                perf['test_samples']
+                            )
+
+                        # Best parameters
+                        st.markdown("### ⚙️ Optimized Parameters")
+                        st.json(perf['best_parameters'])
+
+                else:
+                    st.error(f"❌ Training failed: {result}")
+
+
+def show_model_performance():
+    st.markdown("## 📈 Model Performance Metrics")
+
+    if st.button("📊 Get Performance Metrics", use_container_width=True):
+        with st.spinner("📊 Fetching model performance..."):
+            success, result = api.get_model_performance()
+
+            if success:
+                perf = result['model_performance'][0]
+
+                # Main metrics
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    st.metric(
+                        "🎯 Test Accuracy",
+                        f"{perf['test_accuracy']:.4f}"
+                    )
+
+                with col2:
+                    st.metric(
+                        "🔄 CV Score",
+                        f"{perf['best_cv_score']:.4f}"
+                    )
+
+                with col3:
+                    st.metric(
+                        "🧠 Model",
+                        result['best_model']
+                    )
+
+                with col4:
+                    st.metric(
+                        "📊 Features",
+                        result['total_features_after_encoding']
+                    )
+
+                # Feature importance (if available)
+                st.markdown("### 🎯 Feature Columns Used")
+                features_df = pd.DataFrame({'Feature': result['feature_columns']})
+                st.dataframe(features_df, use_container_width=True)
+
+                # Best parameters
+                st.markdown("### ⚙️ Optimized Hyperparameters")
+                st.json(perf['best_parameters'])
+
+                # Training summary
+                st.markdown("### 📋 Training Summary")
+                st.write(f"- **Training Samples:** {perf['train_samples']}")
+                st.write(f"- **Test Samples:** {perf['test_samples']}")
+                st.write(f"- **Model Type:** {perf['model']}")
+                st.write(f"- **Cross-Validation Folds:** 3")
+
+            else:
+                st.error(f"❌ Failed to get performance metrics: {result}")
+
+
+def show_debug_info():
+    st.markdown("## 🔧 Debug Information")
+    st.markdown("Technical information about your data and system:")
+
+    if st.button("🔍 Get Debug Info", use_container_width=True):
+        with st.spinner("🔍 Gathering debug information..."):
+            success, result = api.get_debug_info()
+
+            if success:
+                # Data shape and columns
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("### 📊 Data Shape")
+                    st.write(f"**Rows:** {result['data_shape'][0]}")
+                    st.write(f"**Columns:** {result['data_shape'][1]}")
+
+                    st.markdown("### 🏗️ Preprocessed Shape")
+                    st.write(f"**Rows:** {result['preprocessed_shape'][0]}")
+                    st.write(f"**Columns:** {result['preprocessed_shape'][1]}")
+
+                with col2:
+                    st.markdown("### 📈 Status Distribution")
+                    status_dist = result['status_distribution']
+                    for status, count in status_dist.items():
+                        st.write(f"**{status.replace('_', ' ').title()}:** {count}")
+
+                # Columns info
+                st.markdown("### 📋 Data Columns")
+                columns_df = pd.DataFrame({
+                    'Column': result['columns'],
+                    'Data Type': [str(dtype) for dtype in result['data_types'].values()]
+                })
+                st.dataframe(columns_df, use_container_width=True)
+
+                # Null counts
+                st.markdown("### ❌ Missing Values")
+                null_counts = result['null_counts']
+                if any(count > 0 for count in null_counts.values()):
+                    null_df = pd.DataFrame(list(null_counts.items()), columns=['Column', 'Null Count'])
+                    null_df = null_df[null_df['Null Count'] > 0]
+                    st.dataframe(null_df, use_container_width=True)
+                else:
+                    st.success("✅ No missing values found!")
+
+                # Feature statistics
+                st.markdown("### 📊 Feature Statistics")
+                feature_stats = result['feature_stats']
+                stats_df = pd.DataFrame(feature_stats).transpose()
+                st.dataframe(stats_df, use_container_width=True)
+
+                # Sample data
+                st.markdown("### 👀 Sample Data")
+                sample_df = pd.DataFrame(result['first_few_rows'])
+                st.dataframe(sample_df, use_container_width=True)
+
+            else:
+                st.error(f"❌ Failed to get debug info: {result}")
+
+
+if __name__ == "__main__":
+    main()
