@@ -1,0 +1,457 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import io
+
+# Page configuration
+st.set_page_config(
+    page_title="Blog Post Performance Tracker",
+    page_icon="📝",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
+    }
+    .status-good { border-left-color: #28a745 !important; }
+    .status-warning { border-left-color: #ffc107 !important; }
+    .status-poor { border-left-color: #dc3545 !important; }
+</style>
+""", unsafe_allow_html=True)
+
+
+class BlogPostTracker:
+    def __init__(self):
+        self.feature_columns = [
+            'posting_delay', 'early_posting', 'writing_duration',
+            'scheduled_duration', 'duration_difference', 'posting_hour',
+            'posting_day_of_week', 'posting_month'
+        ]
+
+    def preprocess_data(self, df):
+        """Preprocess the blog data to create features"""
+        try:
+            # Convert time columns to datetime
+            datetime_columns = ['start_writing', 'post_published', 'scheduled_start', 'scheduled_deadline']
+            for col in datetime_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col])
+
+            # Feature engineering
+            df['posting_delay'] = np.maximum(0,
+                                             (df['post_published'] - df['scheduled_deadline']).dt.total_seconds() / 60)
+            df['early_posting'] = np.maximum(0,
+                                             (df['scheduled_deadline'] - df['post_published']).dt.total_seconds() / 60)
+            df['writing_duration'] = (df['post_published'] - df['start_writing']).dt.total_seconds() / 3600
+            df['scheduled_duration'] = (df['scheduled_deadline'] - df['scheduled_start']).dt.total_seconds() / 3600
+            df['duration_difference'] = df['writing_duration'] - df['scheduled_duration']
+            df['posting_hour'] = df['post_published'].dt.hour
+            df['posting_day_of_week'] = df['post_published'].dt.dayofweek
+            df['posting_month'] = df['post_published'].dt.month
+
+            # Create posting performance status
+            def categorize_posting_performance(row):
+                if row['posting_delay'] <= 30 and row['early_posting'] <= 30:
+                    return 'on_schedule'
+                elif row['posting_delay'] > 240 or row['early_posting'] > 480:
+                    return 'poor_timing'
+                else:
+                    return 'acceptable'
+
+            df['posting_status'] = df.apply(categorize_posting_performance, axis=1)
+            return df
+
+        except Exception as e:
+            st.error(f"Error preprocessing data: {str(e)}")
+            return df
+
+    def predict_performance(self, data):
+        """Simple rule-based prediction (replacing ML model)"""
+        try:
+            df = pd.DataFrame([data])
+            df = self.preprocess_data(df)
+
+            row = df.iloc[0]
+
+            # Simple rule-based prediction
+            if row['posting_delay'] <= 30 and row['early_posting'] <= 30:
+                status = 'on_schedule'
+                confidence = 0.85
+            elif row['posting_delay'] > 240 or row['early_posting'] > 480:
+                status = 'poor_timing'
+                confidence = 0.90
+            else:
+                status = 'acceptable'
+                confidence = 0.75
+
+            # Create probability distribution
+            probs = {'on_schedule': 0.3, 'acceptable': 0.4, 'poor_timing': 0.3}
+            probs[status] = confidence
+            remaining = (1.0 - confidence) / 2
+            for key in probs:
+                if key != status:
+                    probs[key] = remaining
+
+            return {
+                'predicted_status': status,
+                'probabilities': probs,
+                'confidence': confidence
+            }
+
+        except Exception as e:
+            st.error(f"Error making prediction: {str(e)}")
+            return None
+
+
+# Initialize tracker
+if 'tracker' not in st.session_state:
+    st.session_state.tracker = BlogPostTracker()
+
+# Main title
+st.markdown('<h1 class="main-header">📝 Blog Post Performance Tracker</h1>', unsafe_allow_html=True)
+
+# Sidebar
+st.sidebar.title("Navigation")
+page = st.sidebar.selectbox("Choose a page:", [
+    "📊 Dashboard",
+    "🔮 Predict Performance",
+    "📈 Analytics",
+    "📁 Data Management"
+])
+
+
+# Sample data generator
+def generate_sample_data():
+    """Generate sample blog post data"""
+    np.random.seed(42)
+    n_posts = 50
+
+    base_time = datetime.now() - timedelta(days=30)
+    data = []
+
+    for i in range(n_posts):
+        # Random timing variations
+        start_writing = base_time + timedelta(days=i / 2, hours=np.random.uniform(-2, 2))
+        scheduled_start = start_writing + timedelta(hours=np.random.uniform(0.5, 3))
+        scheduled_deadline = scheduled_start + timedelta(hours=np.random.uniform(2, 8))
+
+        # Add some realistic delays/early postings
+        actual_delay = np.random.normal(0, 120)  # minutes
+        post_published = scheduled_deadline + timedelta(minutes=actual_delay)
+
+        data.append({
+            'post_id': f'post_{i + 1:03d}',
+            'start_writing': start_writing,
+            'scheduled_start': scheduled_start,
+            'scheduled_deadline': scheduled_deadline,
+            'post_published': post_published,
+            'title': f'Blog Post {i + 1}',
+            'category': np.random.choice(['Tech', 'Lifestyle', 'Business', 'Tutorial'])
+        })
+
+    return pd.DataFrame(data)
+
+
+# Initialize sample data if not exists
+if 'blog_data' not in st.session_state:
+    st.session_state.blog_data = generate_sample_data()
+
+# Page routing
+if page == "📊 Dashboard":
+    st.header("Dashboard Overview")
+
+    if st.session_state.blog_data is not None and not st.session_state.blog_data.empty:
+        df = st.session_state.tracker.preprocess_data(st.session_state.blog_data.copy())
+
+        # Key metrics
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            total_posts = len(df)
+            st.metric("Total Posts", total_posts)
+
+        with col2:
+            on_time = len(df[df['posting_status'] == 'on_schedule'])
+            on_time_rate = (on_time / total_posts * 100) if total_posts > 0 else 0
+            st.metric("On Schedule", f"{on_time_rate:.1f}%")
+
+        with col3:
+            avg_delay = df['posting_delay'].mean()
+            st.metric("Avg Delay (min)", f"{avg_delay:.1f}")
+
+        with col4:
+            avg_duration = df['writing_duration'].mean()
+            st.metric("Avg Writing Time (hrs)", f"{avg_duration:.1f}")
+
+        # Status distribution
+        col1, col2 = st.columns(2)
+
+        with col1:
+            status_counts = df['posting_status'].value_counts()
+            fig_pie = px.pie(
+                values=status_counts.values,
+                names=status_counts.index,
+                title="Posting Status Distribution",
+                color_discrete_map={
+                    'on_schedule': '#28a745',
+                    'acceptable': '#ffc107',
+                    'poor_timing': '#dc3545'
+                }
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        with col2:
+            # Recent performance trend
+            df_recent = df.sort_values('post_published').tail(20)
+            fig_trend = px.line(
+                df_recent,
+                x='post_published',
+                y='posting_delay',
+                title="Recent Posting Delay Trend",
+                labels={'posting_delay': 'Delay (minutes)', 'post_published': 'Date'}
+            )
+            st.plotly_chart(fig_trend, use_container_width=True)
+
+        # Recent posts table
+        st.subheader("Recent Posts")
+        recent_posts = df.sort_values('post_published', ascending=False).head(10)
+        display_cols = ['title', 'post_published', 'posting_status', 'posting_delay', 'writing_duration']
+        st.dataframe(recent_posts[display_cols], use_container_width=True)
+
+    else:
+        st.info("No data available. Please upload data or use sample data.")
+
+elif page == "🔮 Predict Performance":
+    st.header("Predict Blog Post Performance")
+
+    st.markdown("Enter your blog post timing details to get a performance prediction:")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        start_writing = st.date_input(
+            "When did you start writing?",
+            value=datetime.now() - timedelta(hours=2)
+        )
+        start_writing_time = st.time_input("Start writing time", value=(datetime.now() - timedelta(hours=2)).time())
+
+        scheduled_start = st.date_input(
+            "Scheduled start date?",
+            value=datetime.now() - timedelta(hours=1)
+        )
+        scheduled_start_time = st.time_input("Scheduled start time", value=(datetime.now() - timedelta(hours=1)).time())
+
+    with col2:
+        post_published = st.date_input(
+            "When was it published?",
+            value=datetime.now()
+        )
+        post_published_time = st.time_input("Published time", value=datetime.now().time())
+
+        scheduled_deadline = st.date_input(
+            "Scheduled deadline date?",
+            value=datetime.now() + timedelta(hours=1)
+        )
+        scheduled_deadline_time = st.time_input("Deadline time", value=(datetime.now() + timedelta(hours=1)).time())
+
+    # Combine date and time
+    start_writing_dt = datetime.combine(start_writing, start_writing_time)
+    scheduled_start_dt = datetime.combine(scheduled_start, scheduled_start_time)
+    post_published_dt = datetime.combine(post_published, post_published_time)
+    scheduled_deadline_dt = datetime.combine(scheduled_deadline, scheduled_deadline_time)
+
+    if st.button("Predict Performance", type="primary"):
+        prediction_data = {
+            'start_writing': start_writing_dt,
+            'scheduled_start': scheduled_start_dt,
+            'post_published': post_published_dt,
+            'scheduled_deadline': scheduled_deadline_dt
+        }
+
+        result = st.session_state.tracker.predict_performance(prediction_data)
+
+        if result:
+            st.success("Prediction Generated!")
+
+            # Display prediction
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                status = result['predicted_status']
+                color = {
+                    'on_schedule': '🟢',
+                    'acceptable': '🟡',
+                    'poor_timing': '🔴'
+                }.get(status, '⚫')
+
+                st.markdown(f"### {color} Predicted Status")
+                st.markdown(f"**{status.replace('_', ' ').title()}**")
+
+            with col2:
+                confidence = result['confidence']
+                st.markdown("### 📊 Confidence")
+                st.progress(confidence)
+                st.markdown(f"**{confidence:.1%}**")
+
+            with col3:
+                st.markdown("### 📈 Probabilities")
+                for status, prob in result['probabilities'].items():
+                    st.markdown(f"**{status.replace('_', ' ').title()}:** {prob:.1%}")
+
+elif page == "📈 Analytics":
+    st.header("Performance Analytics")
+
+    if st.session_state.blog_data is not None and not st.session_state.blog_data.empty:
+        df = st.session_state.tracker.preprocess_data(st.session_state.blog_data.copy())
+
+        # Time-based analysis
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Posting hour analysis
+            hour_performance = df.groupby('posting_hour').agg({
+                'posting_delay': 'mean',
+                'posting_status': lambda x: (x == 'on_schedule').mean()
+            }).reset_index()
+
+            fig_hour = px.bar(
+                hour_performance,
+                x='posting_hour',
+                y='posting_status',
+                title="Success Rate by Hour of Day",
+                labels={'posting_status': 'On Schedule Rate', 'posting_hour': 'Hour of Day'}
+            )
+            st.plotly_chart(fig_hour, use_container_width=True)
+
+        with col2:
+            # Day of week analysis
+            dow_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+            dow_performance = df.groupby('posting_day_of_week').agg({
+                'posting_delay': 'mean',
+                'posting_status': lambda x: (x == 'on_schedule').mean()
+            }).reset_index()
+            dow_performance['day_name'] = dow_performance['posting_day_of_week'].apply(lambda x: dow_names[x])
+
+            fig_dow = px.bar(
+                dow_performance,
+                x='day_name',
+                y='posting_status',
+                title="Success Rate by Day of Week",
+                labels={'posting_status': 'On Schedule Rate', 'day_name': 'Day of Week'}
+            )
+            st.plotly_chart(fig_dow, use_container_width=True)
+
+        # Detailed metrics
+        st.subheader("Performance Metrics")
+
+        metrics_df = df.groupby('posting_status').agg({
+            'posting_delay': ['mean', 'std', 'count'],
+            'writing_duration': ['mean', 'std'],
+            'duration_difference': 'mean'
+        }).round(2)
+
+        st.dataframe(metrics_df, use_container_width=True)
+
+        # Correlation heatmap
+        st.subheader("Feature Correlations")
+        numeric_cols = ['posting_delay', 'writing_duration', 'duration_difference',
+                        'posting_hour', 'posting_day_of_week']
+        corr_matrix = df[numeric_cols].corr()
+
+        fig_corr = px.imshow(
+            corr_matrix,
+            title="Feature Correlation Matrix",
+            color_continuous_scale="RdBu_r",
+            aspect="auto"
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+
+    else:
+        st.info("No data available for analysis.")
+
+elif page == "📁 Data Management":
+    st.header("Data Management")
+
+    # File upload
+    st.subheader("Upload Blog Data")
+    uploaded_file = st.file_uploader(
+        "Choose a CSV file",
+        type="csv",
+        help="CSV should have columns: start_writing, post_published, scheduled_start, scheduled_deadline"
+    )
+
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+            required_cols = ['start_writing', 'post_published', 'scheduled_start', 'scheduled_deadline']
+
+            if all(col in df.columns for col in required_cols):
+                st.session_state.blog_data = df
+                st.success(f"Successfully loaded {len(df)} records!")
+
+                # Show data preview
+                st.subheader("Data Preview")
+                st.dataframe(df.head(), use_container_width=True)
+            else:
+                missing_cols = [col for col in required_cols if col not in df.columns]
+                st.error(f"Missing required columns: {missing_cols}")
+
+        except Exception as e:
+            st.error(f"Error loading file: {str(e)}")
+
+    # Sample data option
+    st.subheader("Sample Data")
+    if st.button("Load Sample Data"):
+        st.session_state.blog_data = generate_sample_data()
+        st.success("Sample data loaded!")
+
+    # Export functionality
+    if st.session_state.blog_data is not None and not st.session_state.blog_data.empty:
+        st.subheader("Export Data")
+
+        # Process data for export
+        processed_df = st.session_state.tracker.preprocess_data(st.session_state.blog_data.copy())
+
+        # Convert to CSV
+        csv_buffer = io.StringIO()
+        processed_df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+
+        st.download_button(
+            label="Download Processed Data as CSV",
+            data=csv_data,
+            file_name=f"blog_performance_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
+        # Show current data info
+        st.subheader("Current Data Info")
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Total Records", len(processed_df))
+        with col2:
+            st.metric("Date Range", f"{len(processed_df['post_published'].dt.date.unique())} days")
+        with col3:
+            st.metric("Categories", len(processed_df['category'].unique()) if 'category' in processed_df.columns else 0)
+
+# Footer
+st.markdown("---")
+st.markdown("Built with Streamlit • Blog Post Performance Tracker v1.0")
