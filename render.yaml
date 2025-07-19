@@ -31,10 +31,3 @@ services:
     # Auto-deploy from main branch
     branch: main
     rootDir: .  # Adjust if your Streamlit code is in a subdirectory
-
-  # Optional: Static file service for CSV data (if needed)
-  - type: static
-    name: blog-data-storage
-    staticPublishPath: ./data
-    buildCommand: echo "Static files ready"
-    # This is optional - only if you want to serve static CSV files
