@@ -3,7 +3,7 @@ services:
   - type: web
     name: gistlover
     runtime: python3
-    plan: starter  
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
@@ -20,7 +20,7 @@ services:
   - type: web
     name: gistlover
     runtime: python3
-    plan: starter  
+    plan: free  
     buildCommand: pip install -r requirements-frontend.txt
     startCommand: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false
     envVars:
