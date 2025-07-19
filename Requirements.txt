@@ -1,0 +1,17 @@
+fastapi
+pydantic
+datetime
+typing
+pandas
+numpy
+sklearn
+os
+warnings
+uvicorn
+logging
+contextlib
+streamlit
+requests
+plotly
+json
+time
