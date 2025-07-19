@@ -3,7 +3,7 @@ services:
   - type: web
     name: blog-tracker-api
     runtime: python3
-    plan: starter  # Change to 'standard' or higher for production
+    plan: starter  
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
@@ -12,22 +12,22 @@ services:
       - key: PORT
         value: 10000
     healthCheckPath: /health
-    # Auto-deploy from main branch
+    
     branch: main
-    rootDir: .  # Adjust if your FastAPI code is in a subdirectory
+    rootDir: .  
 
   # Streamlit Frontend Service  
   - type: web
     name: blog-tracker-frontend
     runtime: python3
-    plan: starter  # Change to 'standard' or higher for production
+    plan: starter  
     buildCommand: pip install -r requirements-frontend.txt
     startCommand: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: API_BASE_URL
-        value: https://blog-tracker-api.onrender.com  # Update this to match your API service name
+        value: https://blog-tracker-api.onrender.com  
     # Auto-deploy from main branch
     branch: main
-    rootDir: .  # Adjust if your Streamlit code is in a subdirectory
+    rootDir: . 
