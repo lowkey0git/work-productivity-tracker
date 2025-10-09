@@ -1,0 +1,40 @@
+import joblib
+from sklearn.ensemble import RandomForestClassifier
+import numpy as np
+import os
+from typing import Optional
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "work_model.joblib")
+
+def train_dummy_model(X, y):
+    """Train a simple model and save it. X: numeric features, y: labels"""
+    model = RandomForestClassifier(n_estimators=50, random_state=42)
+    model.fit(X, y)
+    joblib.dump(model, MODEL_PATH)
+    return model
+
+def load_model() -> Optional[RandomForestClassifier]:
+    if os.path.exists(MODEL_PATH):
+        return joblib.load(MODEL_PATH)
+    return None
+
+def predict_from_entry(entry) -> str:
+    """
+    entry: object with amount_of_work and duration_seconds
+    This function maps numeric features to a simple label string.
+    Replace with real model & features later.
+    """
+    model = load_model()
+    features = [[entry.amount_of_work, entry.duration_seconds]]
+    if model is None:
+        # fallback: naive rule-based prediction
+        avg_rate = entry.amount_of_work / (entry.duration_seconds/3600) if entry.duration_seconds else 0
+        if avg_rate > 10:
+            return "high_productivity"
+        elif avg_rate > 3:
+            return "medium_productivity"
+        else:
+            return "low_productivity"
+    else:
+        y_pred = model.predict(features)
+        return str(y_pred[0])
