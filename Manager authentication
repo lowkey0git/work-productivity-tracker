@@ -1,0 +1,7 @@
+from fastapi import Depends, HTTPException
+from .auth import get_db, get_current_manager
+
+def require_manager(current_manager=Depends(get_current_manager)):
+    if not current_manager or not current_manager.is_active:
+        raise HTTPException(status_code=403, detail="Inactive manager")
+    return current_manager
