@@ -1,22 +1,26 @@
-import joblib
-from sklearn.ensemble import RandomForestClassifier
+import pandas as pd
 import numpy as np
-import os
-from typing import Optional
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.ensemble import RandomForestClassifier
+import pickle
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "work_model.joblib")
 
-def train_dummy_model(X, y):
-    """Train a simple model and save it. X: numeric features, y: labels"""
-    model = RandomForestClassifier(n_estimators=50, random_state=42)
-    model.fit(X, y)
-    joblib.dump(model, MODEL_PATH)
-    return model
 
-def load_model() -> Optional[RandomForestClassifier]:
-    if os.path.exists(MODEL_PATH):
-        return joblib.load(MODEL_PATH)
-    return None
+def train_dummy_model("companywork/WA_Fn-UseC_-HR-Employee-Attrition.csv"):
+    file = pd.read_csv("companywork/WA_Fn-UseC_-HR-Employee-Attrition.csv")
+    df = pd.DataFrame(file)
+    drop = df.dropna()
+    df_encoded = pd.get_dummies(df,columns=["Attrition", "BusinessTravel", "Department", "EducationField", "Gender"
+        ,"JobRole", "MaritalStatus", "Over18", "OverTime"])
+    encoded_dataframe = pd.DataFrame(df_encoded)
+    x = encoded_dataframe.drop( ["Attrition_No", "Attrition_Yes"],axis=1)
+    y = encoded_dataframe[["Attrition_No", "Attrition_Yes"]]
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+    model = RandomForestClassifier(random_state=42)
+    fitness = model.fit(x_train,y_tra
+def load_model():
 
 def predict_from_entry(entry) -> str:
     """
