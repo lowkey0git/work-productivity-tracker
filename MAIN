@@ -1,12 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from . import models, schemas, crud, auth, ml_model
-from .database import engine, SessionLocal
-from .auth import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+import models, schemas, crud, auth, ml_model
+from database import engine, SessionLocal
+from auth import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from datetime import timedelta
 import secrets
 from fastapi.middleware.cors import CORSMiddleware
+from ml_model import train_dummy_model,load_model
+import numpy as np
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -86,36 +88,53 @@ def submit_work(entry: schemas.WorkEntryCreate, db: Session = Depends(get_db)):
 
 # Get all entries (protected)
 @app.get("/api/work", response_model=list[schemas.WorkEntryResponse])
-def list_work_entries(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), manager = Depends(auth.get_current_manager)):
+def list_work_entries(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     return crud.get_work_entries(db, skip=skip, limit=limit)
 
 # Get aggregated statistics (protected)
 @app.get("/api/stats")
-def stats(db: Session = Depends(get_db), manager = Depends(auth.get_current_manager)):
+def stats(db: Session = Depends(get_db)):
     entries = crud.get_work_entries(db, skip=0, limit=10000)
     total = len(entries)
     total_work = sum(e.amount_of_work for e in entries)
     avg_duration = sum(e.duration_seconds for e in entries)/total if total else 0
     return {"total_entries": total, "total_work": total_work, "avg_duration_seconds": avg_duration}
-
-# Endpoint to trigger model training from stored entries (protected)
-@app.post("/api/train-model")
-def train_model(db: Session = Depends(get_db), manager = Depends(auth.get_current_manager)):
+# Endpoint to make predictions from stored work entries (protected)
+@app.post("/api/predict")
+def predict_from_entries(db: Session = Depends(get_db)):
     entries = crud.get_work_entries(db, skip=0, limit=10000)
-    # Build a toy dataset: label by threshold of avg_rate (example only)
+
+    if not entries:
+        raise HTTPException(status_code=404, detail="No work entries found in database")
+
+    # Load your trained model
+    model = load_model()
+    if model is None:
+        raise HTTPException(status_code=400, detail="No trained model found. Please train the model first.")
+
+    # Prepare data for prediction
     X = []
-    y = []
+    ids = []
     for e in entries:
         if e.duration_seconds <= 0:
             continue
-        avg_rate = e.amount_of_work / (e.duration_seconds/3600)
-        label = 2 if avg_rate > 10 else (1 if avg_rate > 3 else 0)
         X.append([e.amount_of_work, e.duration_seconds])
-        y.append(label)
+        ids.append(e.id)
+
     if not X:
-        raise HTTPException(status_code=400, detail="Not enough data to train")
-    import numpy as np
+        raise HTTPException(status_code=400, detail="Not enough valid data for prediction")
+
+    # Convert to NumPy array and make predictions
     X = np.array(X)
-    from .ml_model import train_dummy_model
-    train_dummy_model(X, y)
-    return {"detail": "Model trained and saved."}
+    predictions = model.predict(X)
+
+    # Store predictions in database (update each record)
+    for idx, pred in enumerate(predictions):
+        crud.update_prediction(db, ids[idx], int(pred))
+
+    db.commit()
+
+    return {
+        "detail": "Predictions generated and stored successfully.",
+        "count": len(predictions),
+    }
