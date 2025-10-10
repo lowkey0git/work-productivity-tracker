@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from . import models, schemas
 from datetime import timedelta
+from passlib.context import CryptContext
 
 def create_work_entry(db: Session, entry: schemas.WorkEntryCreate, ml_prediction: str = None):
     duration = (entry.end_time - entry.start_time).total_seconds()
@@ -24,7 +25,7 @@ def get_work_entry(db: Session, entry_id: int):
     return db.query(models.WorkEntry).filter(models.WorkEntry.id == entry_id).first()
 
 # Manager CRUD
-from passlib.context import CryptContext
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def create_manager(db: Session, username: str, password: str, email: str = None):
