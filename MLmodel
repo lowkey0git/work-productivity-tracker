@@ -7,7 +7,6 @@ from sklearn.ensemble import RandomForestClassifier
 import pickle
 
 
-
 def train_dummy_model("companywork/WA_Fn-UseC_-HR-Employee-Attrition.csv"):
     file = pd.read_csv("companywork/WA_Fn-UseC_-HR-Employee-Attrition.csv")
     df = pd.DataFrame(file)
@@ -19,8 +18,11 @@ def train_dummy_model("companywork/WA_Fn-UseC_-HR-Employee-Attrition.csv"):
     y = encoded_dataframe[["Attrition_No", "Attrition_Yes"]]
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
     model = RandomForestClassifier(random_state=42)
-    fitness = model.fit(x_train,y_tra
+    fitness = model.fit(x_train,y_train)
+    joblib.dump(model,"model.joblib)
+
 def load_model():
+    loaded_model = joblib.load("model.joblib")
 
 def predict_from_entry(entry) -> str:
     """
