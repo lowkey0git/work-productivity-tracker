@@ -5,10 +5,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestClassifier
 import joblib
+from schemas import WorkEntryResponse
 
-
-def train_dummy_model("companywork/WA_Fn-UseC_-HR-Employee-Attrition.csv"):
-    file = pd.read_csv("companywork/WA_Fn-UseC_-HR-Employee-Attrition.csv")
+def train_dummy_model():
+    file = pd.read_csv("WA_Fn-UseC_-HR-Employee-Attrition.csv")
     df = pd.DataFrame(file)
     drop = df.dropna()
     df_encoded = pd.get_dummies(df,columns=["Attrition", "BusinessTravel", "Department", "EducationField", "Gender"
@@ -19,22 +19,17 @@ def train_dummy_model("companywork/WA_Fn-UseC_-HR-Employee-Attrition.csv"):
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
     model = RandomForestClassifier(random_state=42)
     fitness = model.fit(x_train,y_train)
-    joblib.dump(model,"model.joblib)
+    joblib.dump(model,"model.joblib")
 
 def load_model():
     loaded_model = joblib.load("model.joblib")
 
-def predict_from_entry(entry) -> str:
-    """
-    entry: object with amount_of_work and duration_seconds
-    This function maps numeric features to a simple label string.
-    Replace with real model & features later.
-    """
+def predict_from_entry(WorkEntryResponse):
     model = load_model()
-    features = [[entry.amount_of_work, entry.duration_seconds]]
+    features = [[WorkEntryResponse.amount_of_work, WorkEntryResponse.duration_seconds]]
     if model is None:
         # fallback: naive rule-based prediction
-        avg_rate = entry.amount_of_work / (entry.duration_seconds/3600) if entry.duration_seconds else 0
+        avg_rate = WorkEntryResponse.amount_of_work / (WorkEntryResponse.duration_seconds/3600) if entry.duration_seconds else 0
         if avg_rate > 10:
             return "high_productivity"
         elif avg_rate > 3:
