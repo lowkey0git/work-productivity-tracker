@@ -3,13 +3,13 @@ from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from . import crud, models
-from .database import SessionLocal
-from .schemas import TokenData
+import crud, models
+from database import SessionLocal
+from schemas import TokenData
 from passlib.context import CryptContext
 
 # Secret — set via env vars in production
-SECRET_KEY = "CHANGE_ME_TO_A_SECURE_RANDOM_VALUE"
+SECRET_KEY = "CHibueze"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -56,3 +56,8 @@ def get_current_manager(token: str = Depends(oauth2_scheme), db: Session = Depen
     if manager is None:
         raise credentials_exception
     return manager
+
+def require_manager(current_manager=Depends(get_current_manager)):
+    if not current_manager or not current_manager.is_active:
+        raise HTTPException(status_code=403, detail="Inactive manager")
+    return current_manager
